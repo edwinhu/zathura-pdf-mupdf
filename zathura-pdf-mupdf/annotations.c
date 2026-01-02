@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Zlib */
 
 #include <glib.h>
+#include <math.h>
 #include <mupdf/pdf.h>
 
 #include "plugin.h"
@@ -382,5 +383,125 @@ zathura_error_t pdf_page_export_annotations(zathura_page_t* page, void* data,
   g_mutex_unlock(&mupdf_document->mutex);
 
   g_debug("Exported %d highlights to page %u", exported, page_id);
+  return result;
+}
+
+/* Check if two rectangles match within tolerance */
+static bool rect_matches(zathura_rectangle_t* zr, double x0, double y0, double x1, double y1,
+                         double page_height, double eps) {
+  /* Convert PDF coordinates to zathura coordinates for comparison */
+  double z_y1 = page_height - y1;  /* PDF y1 -> zathura y1 */
+  double z_y2 = page_height - y0;  /* PDF y0 -> zathura y2 */
+
+  return (fabs(zr->x1 - x0) < eps && fabs(zr->x2 - x1) < eps &&
+          fabs(zr->y1 - z_y1) < eps && fabs(zr->y2 - z_y2) < eps);
+}
+
+/* Check if annotation geometry matches given rectangles */
+static bool annot_geometry_matches(fz_context* ctx, pdf_annot* annot,
+                                   girara_list_t* rects, double page_height) {
+  int quad_count = pdf_annot_quad_point_count(ctx, annot);
+  size_t rect_count = girara_list_size(rects);
+
+  if ((size_t)quad_count != rect_count) {
+    return false;
+  }
+
+  const double eps = 1.0;
+
+  for (int i = 0; i < quad_count; i++) {
+    fz_quad quad = pdf_annot_quad_point(ctx, annot, i);
+    fz_rect r = fz_rect_from_quad(quad);
+
+    zathura_rectangle_t* zr = girara_list_nth(rects, i);
+    if (zr == NULL || !rect_matches(zr, r.x0, r.y0, r.x1, r.y1, page_height, eps)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+zathura_error_t pdf_page_delete_annotation(zathura_page_t* page, void* data,
+                                            girara_list_t* rects) {
+  g_debug("pdf_page_delete_annotation called");
+
+  if (page == NULL || data == NULL || rects == NULL) {
+    return ZATHURA_ERROR_INVALID_ARGUMENTS;
+  }
+
+  mupdf_page_t* mupdf_page = data;
+  zathura_document_t* document = zathura_page_get_document(page);
+
+  if (document == NULL || mupdf_page->page == NULL) {
+    return ZATHURA_ERROR_INVALID_ARGUMENTS;
+  }
+
+  mupdf_document_t* mupdf_document = zathura_document_get_data(document);
+  if (mupdf_document == NULL || mupdf_document->ctx == NULL) {
+    return ZATHURA_ERROR_INVALID_ARGUMENTS;
+  }
+
+  /* Get page height for coordinate conversion */
+  double page_height = zathura_page_get_height(page);
+  unsigned int page_id = zathura_page_get_index(page);
+
+  g_mutex_lock(&mupdf_document->mutex);
+
+  fz_context* ctx = mupdf_document->ctx;
+
+  /* Get pdf_page from fz_page */
+  pdf_page* ppage = pdf_page_from_fz_page(ctx, mupdf_page->page);
+  if (ppage == NULL) {
+    g_debug("pdf_page_from_fz_page returned NULL");
+    g_mutex_unlock(&mupdf_document->mutex);
+    return ZATHURA_ERROR_UNKNOWN;
+  }
+
+  g_debug("Deleting annotation on page %u (height: %f) with %zu rectangles",
+          page_id, page_height, girara_list_size(rects));
+
+  bool found = false;
+  zathura_error_t result = ZATHURA_ERROR_OK;
+
+  fz_try(ctx) {
+    /* Iterate through annotations to find matching one */
+    for (pdf_annot* annot = pdf_first_annot(ctx, ppage); annot != NULL; ) {
+      /* Filter for highlight, underline, and strikeout annotations */
+      enum pdf_annot_type type = pdf_annot_type(ctx, annot);
+      if (type != PDF_ANNOT_HIGHLIGHT &&
+          type != PDF_ANNOT_UNDERLINE &&
+          type != PDF_ANNOT_STRIKE_OUT) {
+        annot = pdf_next_annot(ctx, annot);
+        continue;
+      }
+
+      /* Check if geometry matches */
+      if (annot_geometry_matches(ctx, annot, rects, page_height)) {
+        g_debug("Found matching annotation, deleting");
+        /* Delete the annotation */
+        pdf_delete_annot(ctx, ppage, annot);
+        found = true;
+        break;
+      }
+
+      annot = pdf_next_annot(ctx, annot);
+    }
+
+    if (!found) {
+      g_debug("No matching annotation found");
+      result = ZATHURA_ERROR_UNKNOWN;
+    }
+  }
+  fz_catch(ctx) {
+    g_debug("Exception caught during annotation deletion");
+    result = ZATHURA_ERROR_UNKNOWN;
+  }
+
+  g_mutex_unlock(&mupdf_document->mutex);
+
+  if (found) {
+    g_debug("Successfully deleted annotation on page %u", page_id);
+  }
+
   return result;
 }

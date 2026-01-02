@@ -215,4 +215,14 @@ girara_list_t* pdf_page_get_annotations(zathura_page_t* page, void* data, zathur
  */
 zathura_error_t pdf_page_export_annotations(zathura_page_t* page, void* data, girara_list_t* highlights);
 
+/**
+ * Deletes a PDF annotation matching the given rectangles
+ *
+ * @param page Page
+ * @param data Mupdf page representation
+ * @param rects List of zathura_rectangle_t* to match
+ * @return ZATHURA_ERROR_OK when no error occurred, otherwise see zathura_error_t
+ */
+zathura_error_t pdf_page_delete_annotation(zathura_page_t* page, void* data, girara_list_t* rects);
+
 #endif // PDF_H
