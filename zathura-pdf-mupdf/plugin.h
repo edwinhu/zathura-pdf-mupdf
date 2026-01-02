@@ -195,4 +195,14 @@ zathura_error_t pdf_page_get_label(zathura_page_t* page, void* data, char** labe
  */
 zathura_error_t pdf_page_render_cairo(zathura_page_t* page, void* mupdf_page, cairo_t* cairo, bool printing);
 
+/**
+ * Gets embedded PDF annotations (highlights, underlines, strikeouts)
+ *
+ * @param page Page
+ * @param data Mupdf page representation
+ * @param error Set to an error value (see zathura_error_t) if an error occurred
+ * @return List of zathura_highlight_t* or NULL if an error occurred
+ */
+girara_list_t* pdf_page_get_annotations(zathura_page_t* page, void* data, zathura_error_t* error);
+
 #endif // PDF_H

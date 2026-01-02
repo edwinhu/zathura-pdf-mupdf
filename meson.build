@@ -19,6 +19,10 @@ desktopdir = join_paths(datadir, 'applications')
 mupdf_required_version_major = 1
 mupdf_required_version_minor = 26
 
+# Use dev zathura headers (must come before system headers)
+# Need both source dir (for zathura/*.h) and build dir (for generated zathura-version.h)
+zathura_dev_include = include_directories('../../', '../../build')
+
 zathura = dependency('zathura', version: '>=0.5.2')
 girara = dependency('girara-gtk3')
 glib = dependency('glib-2.0')
@@ -80,6 +84,7 @@ flags = [
 flags = cc.get_supported_arguments(flags)
 
 sources = files(
+  'zathura-pdf-mupdf/annotations.c',
   'zathura-pdf-mupdf/document.c',
   'zathura-pdf-mupdf/image.c',
   'zathura-pdf-mupdf/attachment.c',
@@ -96,6 +101,7 @@ sources = files(
 pdf = shared_module('pdf-mupdf',
   sources,
   dependencies: build_dependencies,
+  include_directories: zathura_dev_include,
   c_args: defines + flags,
   install: true,
   install_dir: plugindir,
