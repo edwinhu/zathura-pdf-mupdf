@@ -75,8 +75,8 @@ girara_list_t* pdf_page_get_annotations(zathura_page_t* page, void* data,
     return NULL;
   }
 
-  /* Create result list with highlight cleanup function */
-  girara_list_t* list = girara_list_new_with_free((girara_free_function_t)zathura_highlight_free);
+  /* Create result list - caller takes ownership of highlights */
+  girara_list_t* list = girara_list_new();
   if (list == NULL) {
     if (error != NULL) {
       *error = ZATHURA_ERROR_OUT_OF_MEMORY;
@@ -168,12 +168,11 @@ girara_list_t* pdf_page_get_annotations(zathura_page_t* page, void* data,
           continue;
         }
 
-        /* Convert coordinates: PDF has origin at bottom-left, Y up
-         * Zathura has origin at top-left, Y down */
+        /* Use PDF coordinates directly - like select.c does */
         rect->x1 = r.x0;
         rect->x2 = r.x1;
-        rect->y1 = page_height - r.y1;  /* Flip Y */
-        rect->y2 = page_height - r.y0;  /* Flip Y */
+        rect->y1 = r.y0;
+        rect->y2 = r.y1;
 
         girara_list_append(rects, rect);
       }
@@ -331,16 +330,15 @@ zathura_error_t pdf_page_export_annotations(zathura_page_t* page, void* data,
       /* Convert each rectangle to a quad point */
       size_t quad_index = 0;
       GIRARA_LIST_FOREACH_BODY(rects, zathura_rectangle_t*, rect,
-        /* Convert zathura coordinates (top-left origin, Y down)
-         * to PDF coordinates (bottom-left origin, Y up) */
+        /* Map coordinates directly - no flipping needed */
         quads[quad_index].ul.x = rect->x1;
-        quads[quad_index].ul.y = page_height - rect->y1;  /* upper-left */
+        quads[quad_index].ul.y = rect->y2;  /* upper-left (larger y in fz_quad) */
         quads[quad_index].ur.x = rect->x2;
-        quads[quad_index].ur.y = page_height - rect->y1;  /* upper-right */
+        quads[quad_index].ur.y = rect->y2;  /* upper-right */
         quads[quad_index].ll.x = rect->x1;
-        quads[quad_index].ll.y = page_height - rect->y2;  /* lower-left */
+        quads[quad_index].ll.y = rect->y1;  /* lower-left (smaller y) */
         quads[quad_index].lr.x = rect->x2;
-        quads[quad_index].lr.y = page_height - rect->y2;  /* lower-right */
+        quads[quad_index].lr.y = rect->y1;  /* lower-right */
         quad_index++;
       );
 
@@ -389,12 +387,10 @@ zathura_error_t pdf_page_export_annotations(zathura_page_t* page, void* data,
 /* Check if two rectangles match within tolerance */
 static bool rect_matches(zathura_rectangle_t* zr, double x0, double y0, double x1, double y1,
                          double page_height, double eps) {
-  /* Convert PDF coordinates to zathura coordinates for comparison */
-  double z_y1 = page_height - y1;  /* PDF y1 -> zathura y1 */
-  double z_y2 = page_height - y0;  /* PDF y0 -> zathura y2 */
-
+  (void)page_height;  /* No longer needed */
+  /* Compare directly - coordinates are in the same space */
   return (fabs(zr->x1 - x0) < eps && fabs(zr->x2 - x1) < eps &&
-          fabs(zr->y1 - z_y1) < eps && fabs(zr->y2 - z_y2) < eps);
+          fabs(zr->y1 - y0) < eps && fabs(zr->y2 - y1) < eps);
 }
 
 /* Check if annotation geometry matches given rectangles */
