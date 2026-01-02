@@ -205,4 +205,14 @@ zathura_error_t pdf_page_render_cairo(zathura_page_t* page, void* mupdf_page, ca
  */
 girara_list_t* pdf_page_get_annotations(zathura_page_t* page, void* data, zathura_error_t* error);
 
+/**
+ * Exports zathura highlights as embedded PDF annotations
+ *
+ * @param page Page
+ * @param data Mupdf page representation
+ * @param highlights List of zathura_highlight_t* to export
+ * @return ZATHURA_ERROR_OK when no error occurred, otherwise see zathura_error_t
+ */
+zathura_error_t pdf_page_export_annotations(zathura_page_t* page, void* data, girara_list_t* highlights);
+
 #endif // PDF_H

@@ -28,6 +28,7 @@ ZATHURA_PLUGIN_REGISTER_WITH_FUNCTIONS("pdf-mupdf", VERSION_MAJOR, VERSION_MINOR
                                            .page_image_get_cairo     = pdf_page_image_get_cairo,
                                            .page_get_label           = pdf_page_get_label,
                                            .page_get_annotations     = pdf_page_get_annotations,
+                                           .page_export_annotations  = pdf_page_export_annotations,
                                        }),
                                        ZATHURA_PLUGIN_MIMETYPES({
                                            PDF_MIMETYPE "application/oxps",

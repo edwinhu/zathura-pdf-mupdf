@@ -246,3 +246,141 @@ girara_list_t* pdf_page_get_annotations(zathura_page_t* page, void* data,
 
   return list;
 }
+
+static void get_color_rgb(zathura_highlight_color_t color, float rgb[3]) {
+  switch (color) {
+    case ZATHURA_HIGHLIGHT_YELLOW:
+      rgb[0] = 1.0f; rgb[1] = 1.0f; rgb[2] = 0.0f;
+      break;
+    case ZATHURA_HIGHLIGHT_GREEN:
+      rgb[0] = 0.0f; rgb[1] = 1.0f; rgb[2] = 0.0f;
+      break;
+    case ZATHURA_HIGHLIGHT_BLUE:
+      rgb[0] = 0.0f; rgb[1] = 0.5f; rgb[2] = 1.0f;
+      break;
+    case ZATHURA_HIGHLIGHT_RED:
+      rgb[0] = 1.0f; rgb[1] = 0.0f; rgb[2] = 0.0f;
+      break;
+    default:
+      rgb[0] = 1.0f; rgb[1] = 1.0f; rgb[2] = 0.0f;
+  }
+}
+
+zathura_error_t pdf_page_export_annotations(zathura_page_t* page, void* data,
+                                             girara_list_t* highlights) {
+  g_debug("pdf_page_export_annotations called");
+
+  if (page == NULL || data == NULL || highlights == NULL) {
+    return ZATHURA_ERROR_INVALID_ARGUMENTS;
+  }
+
+  mupdf_page_t* mupdf_page = data;
+  zathura_document_t* document = zathura_page_get_document(page);
+
+  if (document == NULL || mupdf_page->page == NULL) {
+    return ZATHURA_ERROR_INVALID_ARGUMENTS;
+  }
+
+  mupdf_document_t* mupdf_document = zathura_document_get_data(document);
+  if (mupdf_document == NULL || mupdf_document->ctx == NULL) {
+    return ZATHURA_ERROR_INVALID_ARGUMENTS;
+  }
+
+  /* Get page height for coordinate conversion */
+  double page_height = zathura_page_get_height(page);
+  unsigned int page_id = zathura_page_get_index(page);
+
+  g_mutex_lock(&mupdf_document->mutex);
+
+  fz_context* ctx = mupdf_document->ctx;
+
+  /* Get pdf_page from fz_page */
+  pdf_page* ppage = pdf_page_from_fz_page(ctx, mupdf_page->page);
+  if (ppage == NULL) {
+    g_debug("pdf_page_from_fz_page returned NULL");
+    g_mutex_unlock(&mupdf_document->mutex);
+    return ZATHURA_ERROR_UNKNOWN;
+  }
+
+  g_debug("Exporting %zu highlights to page %u (height: %f)",
+          girara_list_size(highlights), page_id, page_height);
+
+  int exported = 0;
+  zathura_error_t result = ZATHURA_ERROR_OK;
+
+  fz_try(ctx) {
+    /* Iterate through highlights and create PDF annotations */
+    GIRARA_LIST_FOREACH_BODY(highlights, zathura_highlight_t*, hl,
+      /* Only export highlights for this page */
+      if (hl->page != page_id) {
+        continue;
+      }
+
+      /* Convert zathura rectangles to PDF quad points */
+      girara_list_t* rects = hl->rects;
+      if (rects == NULL || girara_list_size(rects) == 0) {
+        g_debug("Highlight has no rectangles, skipping");
+        continue;
+      }
+
+      /* Allocate array for all quad points */
+      size_t num_quads = girara_list_size(rects);
+      fz_quad* quads = fz_malloc_array(ctx, num_quads, fz_quad);
+
+      /* Convert each rectangle to a quad point */
+      size_t quad_index = 0;
+      GIRARA_LIST_FOREACH_BODY(rects, zathura_rectangle_t*, rect,
+        /* Convert zathura coordinates (top-left origin, Y down)
+         * to PDF coordinates (bottom-left origin, Y up) */
+        quads[quad_index].ul.x = rect->x1;
+        quads[quad_index].ul.y = page_height - rect->y1;  /* upper-left */
+        quads[quad_index].ur.x = rect->x2;
+        quads[quad_index].ur.y = page_height - rect->y1;  /* upper-right */
+        quads[quad_index].ll.x = rect->x1;
+        quads[quad_index].ll.y = page_height - rect->y2;  /* lower-left */
+        quads[quad_index].lr.x = rect->x2;
+        quads[quad_index].lr.y = page_height - rect->y2;  /* lower-right */
+        quad_index++;
+      );
+
+      /* Create PDF highlight annotation */
+      pdf_annot* annot = pdf_create_annot(ctx, ppage, PDF_ANNOT_HIGHLIGHT);
+      if (annot == NULL) {
+        g_debug("Failed to create annotation");
+        fz_free(ctx, quads);
+        continue;
+      }
+
+      /* Set quad points for the annotation */
+      pdf_set_annot_quad_points(ctx, annot, num_quads, quads);
+
+      /* Free the quad array */
+      fz_free(ctx, quads);
+
+      /* Set annotation color */
+      float rgb[3];
+      get_color_rgb(hl->color, rgb);
+      pdf_set_annot_color(ctx, annot, 3, rgb);
+
+      /* Set text content if available */
+      if (hl->text != NULL && hl->text[0] != '\0') {
+        pdf_set_annot_contents(ctx, annot, hl->text);
+      }
+
+      /* Update annotation appearance */
+      pdf_update_annot(ctx, annot);
+
+      exported++;
+      g_debug("Exported highlight %d with %zu rectangles", exported, num_quads);
+    );
+  }
+  fz_catch(ctx) {
+    g_debug("Exception caught during annotation export");
+    result = ZATHURA_ERROR_UNKNOWN;
+  }
+
+  g_mutex_unlock(&mupdf_document->mutex);
+
+  g_debug("Exported %d highlights to page %u", exported, page_id);
+  return result;
+}
