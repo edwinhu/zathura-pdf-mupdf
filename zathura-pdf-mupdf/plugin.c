@@ -30,6 +30,10 @@ ZATHURA_PLUGIN_REGISTER_WITH_FUNCTIONS("pdf-mupdf", VERSION_MAJOR, VERSION_MINOR
                                            .page_get_annotations     = pdf_page_get_annotations,
                                            .page_export_annotations  = pdf_page_export_annotations,
                                            .page_delete_annotation   = pdf_page_delete_annotation,
+                                           .page_get_notes           = pdf_page_get_notes,
+                                           .page_delete_note         = pdf_page_delete_note,
+                                           .page_update_note_content = pdf_page_update_note_content,
+                                           .page_export_notes        = pdf_page_export_notes,
                                        }),
                                        ZATHURA_PLUGIN_MIMETYPES({
                                            PDF_MIMETYPE "application/oxps",
